@@ -21,6 +21,8 @@ import { useTranslation } from 'react-i18next'
 import ThemeToggle from '@/components/ThemeToggle'
 import { useSidebar } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { ToastAction } from '@/components/ui/toast'
+import { useToast } from '@/components/ui/use-toast'
 import SystemInstruction from '@/components/SystemInstruction'
 import AttachmentArea from '@/components/AttachmentArea'
 import Button from '@/components/Button'
@@ -68,6 +70,7 @@ const PluginList = dynamic(() => import('@/components/PluginList'))
 
 export default function Home() {
   const { t } = useTranslation()
+  const { toast } = useToast()
   const { state: sidebarState, toggleSidebar } = useSidebar()
   const siriWaveRef = useRef<HTMLDivElement>(null)
   const scrollAreaBottomRef = useRef<HTMLDivElement>(null)
@@ -187,6 +190,9 @@ export default function Home() {
         safety,
       }
       if (systemInstruction) config.systemInstruction = systemInstruction
+      if (talkMode === 'voice') {
+        config.systemInstruction = `${getVoiceModelPrompt()}\n\n${systemInstruction}`
+      }
       if (tools.length > 0 && !isThinkingModel) config.tools = [{ functionDeclarations: tools }]
       if (apiKey !== '') {
         config.baseUrl = apiProxy || GEMINI_API_BASE_URL
@@ -274,7 +280,7 @@ export default function Home() {
         }
       }
     },
-    [systemInstruction, isThinkingModel],
+    [systemInstruction, isThinkingModel, talkMode],
   )
 
   const summarize = useCallback(
@@ -323,9 +329,7 @@ export default function Home() {
         },
         onStatement: (statement) => {
           if (talkMode === 'voice') {
-            // Remove list symbols and adjust layout
-            const audioText = statement.replaceAll('*', '').replaceAll('\n\n', '\n')
-            speech(audioText)
+            speech(statement)
           }
         },
         onFinish: async () => {
@@ -593,7 +597,6 @@ export default function Home() {
         messages = getTalkAudioPrompt(messages)
       }
       if (talkMode === 'voice') {
-        messages = getVoiceModelPrompt(messages)
         setStatus('thinkng')
         setSubtitle('')
       }
@@ -643,10 +646,20 @@ export default function Home() {
   )
 
   const handleCleanMessage = useCallback(() => {
-    const { clear: clearMessage } = useMessageStore.getState()
+    const { clear: clearMessage, backup, restore } = useMessageStore.getState()
+    const conversation = backup()
     clearMessage()
     setErrorMessage('')
-  }, [])
+    toast({
+      title: t('chatContentCleared'),
+      action: (
+        <ToastAction altText="Undo" onClick={() => restore(conversation)}>
+          {t('undo')}
+        </ToastAction>
+      ),
+      duration: 3600,
+    })
+  }, [toast, t])
 
   const updateTalkMode = useCallback((type: 'chat' | 'voice') => {
     const { update } = useSettingStore.getState()
