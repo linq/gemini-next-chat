@@ -70,7 +70,7 @@ function mergeSentences(sentences: string[], sentenceLength = 20): string[] {
 }
 
 function MessageItem(props: Props) {
-  const { id, role, parts, attachments, onRegenerate } = props
+  const { id, role, parts, attachments, groundingMetadata, onRegenerate } = props
   const { t } = useTranslation()
   const contentRef = useRef<HTMLDivElement>(null)
   const [html, setHtml] = useState<string>('')
@@ -317,6 +317,17 @@ function MessageItem(props: Props) {
               <div ref={contentRef}>
                 <Magicdown>{html}</Magicdown>
               </div>
+              {groundingMetadata ? (
+                <div
+                  className="mx-0.5 my-2"
+                  dangerouslySetInnerHTML={{
+                    __html:
+                      groundingMetadata.searchEntryPoint?.renderedContent
+                        ?.replace('margin: 0 8px', 'margin: 0 4px')
+                        .replaceAll('<a', '<a target="_blank"') || '',
+                  }}
+                ></div>
+              ) : null}
               <div
                 className={cn(
                   'flex gap-1 text-right opacity-0 transition-opacity duration-300 group-hover:opacity-100 max-md:opacity-30',
@@ -376,9 +387,20 @@ function MessageItem(props: Props) {
           messageParts.push(part.text)
         }
       })
-      setHtml(messageParts.join(''))
+      let content = messageParts.join('')
+      if (groundingMetadata) {
+        const { groundingSupports = [], groundingChunks = [] } = groundingMetadata
+        groundingSupports.forEach((item) => {
+          content = content.replace(
+            item.segment.text,
+            `${item.segment.text}${item.groundingChunkIndices.map((indice) => `[[${indice + 1}][gs-${indice}]]`).join('')}`,
+          )
+        })
+        content += `\n\n${groundingChunks.map((item, idx) => `[gs-${idx}]: <${item.web?.uri}> "${item.web?.title}"`).join('\n')}`
+      }
+      setHtml(content)
     }
-  }, [id, role, content, parts, attachments])
+  }, [id, role, content, parts, attachments, groundingMetadata])
 
   return (
     <>
