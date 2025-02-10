@@ -40,7 +40,9 @@ import { textStream, simpleTextStream } from '@/utils/textStream'
 import { encodeToken } from '@/utils/signature'
 import type { FileManagerOptions } from '@/utils/FileManager'
 import { fileUpload, imageUpload } from '@/utils/upload'
+import { parseOffice, isOfficeFile } from '@/utils/officeParser'
 import { findOperationById } from '@/utils/plugin'
+import { generateImages, type ImageGenerationRequest } from '@/utils/generateImages'
 import { detectLanguage, formatTime, readFileAsDataURL } from '@/utils/common'
 import { cn } from '@/utils'
 import { GEMINI_API_BASE_URL } from '@/constant/urls'
@@ -343,7 +345,6 @@ export default function Home() {
         onMessage: (content) => {
           text += content
           setMessage(text)
-          // scrollToBottom()
         },
         onStatement: (statement) => {
           if (talkMode === 'voice') {
@@ -368,7 +369,6 @@ export default function Home() {
           addMessage(message)
           setMessage('')
           setThinkingMessage('')
-          // scrollToBottom()
           setIsThinking(false)
           stopGeneratingRef.current = false
           setExecutingPlugins([])
@@ -405,7 +405,7 @@ export default function Home() {
 
   const handleFunctionCall = useCallback(
     async (functionCalls: FunctionCall[]) => {
-      const { model } = useSettingStore.getState()
+      const { apiKey, apiProxy, password, model } = useSettingStore.getState()
       const { add: addMessage } = useMessageStore.getState()
       const { installed } = usePluginStore.getState()
       const pluginExecuteResults: Record<string, unknown> = {}
@@ -472,8 +472,23 @@ export default function Home() {
         // if (!isEmpty(cookie)) payload.cookie = cookie
         try {
           if (baseUrl.startsWith('@plugins/')) {
-            const result = await pluginHandle(pluginId, payload)
-            pluginExecuteResults[call.name] = result
+            if (pluginId === 'OfficialImagen') {
+              if (payload.query) {
+                const options =
+                  apiKey !== ''
+                    ? { apiKey, baseUrl: apiProxy || GEMINI_API_BASE_URL }
+                    : { token: encodeToken(password), baseUrl: '/api/google' }
+                const result = await generateImages({
+                  ...options,
+                  model: 'imagen-3.0-generate-002',
+                  params: payload.query as unknown as ImageGenerationRequest,
+                })
+                pluginExecuteResults[call.name] = result
+              }
+            } else {
+              const result = await pluginHandle(pluginId, payload)
+              pluginExecuteResults[call.name] = result
+            }
           } else {
             let url = payload.baseUrl
             const options: RequestInit = {
@@ -640,6 +655,7 @@ export default function Home() {
       setContent('')
       clearAttachment()
       setTextareaHeight(TEXTAREA_DEFAULT_HEIGHT)
+      scrollToBottom()
       await fetchAnswer({
         messages,
         model,
@@ -648,7 +664,7 @@ export default function Home() {
         onError: handleError,
       })
     },
-    [isOldVisionModel, fetchAnswer, handleResponse, handleFunctionCall, handleError, checkAccessStatus],
+    [isOldVisionModel, fetchAnswer, handleResponse, handleFunctionCall, handleError, checkAccessStatus, scrollToBottom],
   )
 
   const handleResubmit = useCallback(
@@ -667,6 +683,7 @@ export default function Home() {
           }
         }
       }
+      scrollToBottom()
       await fetchAnswer({
         messages: [...messagesRef.current],
         model,
@@ -675,7 +692,7 @@ export default function Home() {
         onError: handleError,
       })
     },
-    [fetchAnswer, handleResponse, handleFunctionCall, handleError, checkAccessStatus],
+    [fetchAnswer, handleResponse, handleFunctionCall, handleError, checkAccessStatus, scrollToBottom],
   )
 
   const handleCleanMessage = useCallback(() => {
@@ -758,9 +775,17 @@ export default function Home() {
       const fileList: File[] = []
 
       if (files) {
+        const fileList: File[] = []
         for (let i = 0; i < files.length; i++) {
           const file = files[i]
           if (mimeType.includes(file.type)) {
+            if (isOfficeFile(file.type)) {
+              const newFile = await parseOffice(file, { type: 'file' })
+              if (newFile instanceof File) fileList.push(newFile)
+            } else {
+              fileList.push(file)
+            }
+          } else if (file.type.startsWith('text/')) {
             fileList.push(file)
           }
         }
@@ -908,7 +933,7 @@ export default function Home() {
   }, [])
 
   return (
-    <main className="mx-auto flex h-screen w-full max-w-screen-md flex-col justify-between overflow-hidden">
+    <main className="mx-auto flex h-screen max-h-[-webkit-fill-available] w-full max-w-screen-md flex-col justify-between overflow-hidden">
       <div className="flex justify-between px-4 pb-2 pr-2 pt-10 max-md:pt-4 max-sm:pr-2 max-sm:pt-4">
         <div className="flex flex-row text-xl leading-8 text-red-400 max-sm:text-base">
           <MessageCircleHeart className="h-10 w-10 max-sm:h-8 max-sm:w-8" />
@@ -955,7 +980,7 @@ export default function Home() {
               <div
                 className={cn(
                   'group text-slate-500 transition-colors last:text-slate-800 hover:text-slate-800 dark:last:text-slate-400 dark:hover:text-slate-400 max-sm:hover:bg-transparent',
-                  msg.role === 'model' && msg.parts && msg.parts[0].functionCall ? 'hidden' : '',
+                  msg.role === 'model' && msg.parts && msg.parts[0]?.functionCall ? 'hidden' : '',
                 )}
                 key={msg.id}
               >
