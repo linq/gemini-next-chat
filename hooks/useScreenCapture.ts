@@ -10,7 +10,9 @@ export function useScreenCapture(): UseMediaStreamResult {
     // const controller = new CaptureController();
     // controller.setFocusBehavior("no-focus-change");
     const mediaStream = await navigator.mediaDevices.getDisplayMedia({
-      video: true,
+      video: {
+        displaySurface: 'monitor',
+      },
       // controller
     })
     setStream(mediaStream)
